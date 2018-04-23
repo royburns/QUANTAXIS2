@@ -68,11 +68,10 @@ class QA_DataStruct_Stock_day(_quotation_base):
         super().__init__(DataFrame, dtype, if_fq)
         if 'high_limit' not in self.data.columns:
             self.data['high_limit'] = round(
-                (self.data.close.shift(1) + 0.0002) * 1.1, 2)
+                (self.data.groupby('code',axis=0).close.shift(1) + 0.0002) * 1.1, 2)
         if 'low_limit' not in self.data.columns:
             self.data['low_limit'] = round(
-                (self.data.close.shift(1) + 0.0002) * 0.9, 2)
-
+                (self.data.groupby('code',axis=0).close.shift(1) + 0.0002) * 0.9, 2)
     def __repr__(self):
         return '< QA_DataStruct_Stock_day with {} securities >'.format(len(self.code))
     __str__ = __repr__

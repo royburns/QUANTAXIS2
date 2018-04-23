@@ -58,8 +58,9 @@ class _quotation_base():
     '一个自适应股票/期货/指数的基础类'
 
     def __init__(self, DataFrame, dtype='undefined', if_fq='bfq', marketdata_type='None'):
-        self.data = DataFrame.sort_index(level=1)
+        self.data = DataFrame.sort_index(level=0)
         self.data_type = dtype
+        self.indexs=self.data.index
         self.type = dtype
         self.data_id = QA_util_random_with_topic('DATA', lens=3)
         self.if_fq = if_fq
@@ -355,7 +356,6 @@ class _quotation_base():
             yield self.new(self.data.xs(item, level=1).set_index(self.index.names, drop=False), dtype=self.type, if_fq=self.if_fq)
 
     @property
-    @lru_cache()
     def index(self):
         '返回结构体的索引'
         return self.data.index
@@ -431,7 +431,7 @@ class _quotation_base():
                 'The Pic has been saved to your path: {}'.format(path_name))
 
     def query(self, context):
-        return self.data.query(context)
+        return self.data.query(context,inplace=False)
 
     def new(self, data=None, dtype=None, if_fq=None):
         """
@@ -440,7 +440,7 @@ class _quotation_base():
         inplace 是否是对于原类的修改
 
         """
-        data = self.data if data is None else data
+        data = self.data.reset_index().set_index(self.indexs.names) if data is None else data.reset_index().set_index(self.indexs.names)
         dtype = self.type if dtype is None else dtype
         if_fq = self.if_fq if if_fq is None else if_fq
         temp = copy(self)
@@ -506,10 +506,10 @@ class _quotation_base():
     def splits(self):
         if self.type[-3:] in ['day']:
             return list(map(lambda x: self.new(
-                self.query('code=="{}"'.format(x)).set_index(['date', 'code'], drop=False)), self.code))
+                self.query('code=="{}"'.format(x))), self.code))
         elif self.type[-3:] in ['min']:
             return list(map(lambda x: self.new(
-                self.query('code=="{}"'.format(x)).set_index(['datetime', 'code'], drop=False), self.type, self.if_fq), self.code))
+                self.query('code=="{}"'.format(x)), self.type, self.if_fq), self.code))
 
     # def add_func(self, func, *arg, **kwargs):
     #     with ThreadPoolExecutor(max_workers=16) as executor:
@@ -519,7 +519,7 @@ class _quotation_base():
     #     return list(map(lambda x: func(
     #         self.data.xs(x,level=1), *arg, **kwargs), self.code))
     def add_func(self, func, *arg, **kwargs):
-        return self.data.groupby('code').apply(func, *arg, **kwargs)
+        return self.data.groupby('code',axis=0,as_index=False,sort=False,group_keys=False).apply(func, *arg, **kwargs)
     # def add_func_with_processaccelerate(self, func, *arg, **kwargs):
     #     with ProcessPoolExecutor(max_workers=16) as executor:
     #         return [res.result() for res in {executor.submit(func, self.data.xs(x,level=1), *arg, **kwargs) for x in self.code}]
@@ -539,26 +539,26 @@ class _quotation_base():
         if self.type[-3:] in ['day']:
             if end is not None:
 
-                return self.new(self.query('code=="{}"'.format(code)).query('date>="{}" and date<="{}"'.format(start, end)).set_index(['date', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.query('code=="{}"'.format(code)).query('date>="{}" and date<="{}"'.format(start, end)), self.type, self.if_fq)
             else:
-                return self.new(self.query('code=="{}"'.format(code)).query('date>="{}"'.format(start)).set_index(['date', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.query('code=="{}"'.format(code)).query('date>="{}"'.format(start)), self.type, self.if_fq)
         elif self.type[-3:] in ['min']:
             if end is not None:
-                return self.new(self.query('code=="{}"'.format(code)).data[self.data['datetime'] >= start][self.data['datetime'] <= end].set_index(['datetime', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.query('code=="{}"'.format(code)).data[self.data['datetime'] >= start][self.data['datetime'] <= end], self.type, self.if_fq)
             else:
-                return self.new(self.query('code=="{}"'.format(code)).data[self.data['datetime'] >= start].set_index(['datetime', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.query('code=="{}"'.format(code)).data[self.data['datetime'] >= start], self.type, self.if_fq)
     def select_time(self, start, end=None):
         if self.type[-3:] in ['day']:
             if end is not None:
 
-                return self.new(self.query('date>="{}" and date<="{}"'.format(start, end)).set_index(['date', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.query('date>="{}" and date<="{}"'.format(start, end)), self.type, self.if_fq)
             else:
-                return self.new(self.query('date>="{}"'.format(start)).set_index(['date', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.query('date>="{}"'.format(start)), self.type, self.if_fq)
         elif self.type[-3:] in ['min']:
             if end is not None:
-                return self.new(self.data[self.data['datetime'] >= start][self.data['datetime'] <= end].set_index(['datetime', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.data[self.data['datetime'] >= start][self.data['datetime'] <= end], self.type, self.if_fq)
             else:
-                return self.new(self.data[self.data['datetime'] >= start].set_index(['datetime', 'code'], drop=False), self.type, self.if_fq)
+                return self.new(self.data[self.data['datetime'] >= start], self.type, self.if_fq)
 
     def select_month(self, month):
         return self.new(self.data.loc[month, slice(None)], self.type, self.if_fq)
@@ -570,58 +570,58 @@ class _quotation_base():
             def __gt(_data):
                 if self.type[-3:] in ['day']:
 
-                    return _data.query('date>"{}"'.format(time)).head(gap).set_index(['date', 'code'], drop=False)
+                    return _data.query('date>"{}"'.format(time)).head(gap)
                 elif self.type[-3:] in ['min']:
 
-                    return _data.data[_data.data['datetime'] > time].head(gap).set_index(['datetime', 'code'], drop=False)
+                    return _data.data[_data.data['datetime'] > time].head(gap)
 
 
-            return self.new(self.data.groupby('code').apply(__gt), self.type, self.if_fq)        
+            return self.new(self.data.groupby('code',axis=0,as_index=False,sort=False,group_keys=False).apply(__gt), self.type, self.if_fq)        
 
         elif method in ['gte', '>=']:
             def __gte(_data):
                 if self.type[-3:] in ['day']:
-                    return _data.query('date>="{}"'.format(time)).head(gap).set_index(['date', 'code'], drop=False)
+                    return _data.query('date>="{}"'.format(time)).head(gap)
                 elif self.type[-3:] in ['min']:
-                    return _data.data[_data.data['datetime'] >= time].head(gap).set_index(['datetime', 'code'], drop=False)
-            return self.new(self.data.groupby('code').apply(__gte), self.type, self.if_fq)      
+                    return _data.data[_data.data['datetime'] >= time].head(gap)
+            return self.new(self.data.groupby('code',axis=0,as_index=False,sort=False,group_keys=False).apply(__gte), self.type, self.if_fq)      
         elif method in ['lt', '<']:
             def __lt(_data):
                 if self.type[-3:] in ['day']:
-                    return _data.query('date<"{}"'.format(time)).tail(gap).set_index(['date', 'code'], drop=False)
+                    return _data.query('date<"{}"'.format(time)).tail(gap)
                 elif self.type[-3:] in ['min']:
-                    return _data.data[_data.data['datetime'] <= time].tail(gap).set_index(['datetime', 'code'], drop=False)
+                    return _data.data[_data.data['datetime'] <= time].tail(gap)
 
-            return self.new(self.data.groupby('code').apply(__lt), self.type, self.if_fq)      
+            return self.new(self.data.groupby('code',axis=0,as_index=False,sort=False,group_keys=False).apply(__lt), self.type, self.if_fq)      
         elif method in ['lte', '<=']:
             def __lte(_data):
                 if self.type[-3:] in ['day']:
-                    return _data.query('date<="{}"'.format(time)).tail(gap).set_index(['date', 'code'], drop=False)
+                    return _data.query('date<="{}"'.format(time)).tail(gap)
                 elif self.type[-3:] in ['min']:
-                    return _data.data[_data.data['datetime'] <= time].tail(gap).set_index(['datetime', 'code'], drop=False)
-            return self.new(self.data.groupby('code').apply(__lte), self.type, self.if_fq)      
+                    return _data.data[_data.data['datetime'] <= time].tail(gap)
+            return self.new(self.data.groupby('code',axis=0,as_index=False,sort=False,group_keys=False).apply(__lte), self.type, self.if_fq)      
         elif method in ['e', '==', '=', 'equal']:
             def __eq(_data):
                 if self.type[-3:] in ['day']:
-                    return _data.query('date=="{}"'.format(time)).head(gap).set_index(['date', 'code'], drop=False)
+                    return _data.query('date=="{}"'.format(time)).head(gap)
                 elif self.type[-3:] in ['min']:
-                    return _data.data[_data.data['datetime'] == time].head(gap).set_index(['datetime', 'code'], drop=False)
-            return self.new(self.data.groupby('code').apply(__eq), self.type, self.if_fq)      
+                    return _data.data[_data.data['datetime'] == time].head(gap)
+            return self.new(self.data.groupby('code',axis=0,as_index=False,sort=False,group_keys=False).apply(__eq), self.type, self.if_fq)      
 
     def select_code(self, code):
         if self.type[-3:] in ['day']:
 
-            return self.new(self.data.query('code=="{}"'.format(code)).set_index(['date', 'code'], drop=False), self.type, self.if_fq)
+            return self.new(self.query('code=="{}"'.format(code)), self.type, self.if_fq)
 
         elif self.type[-3:] in ['min']:
-            return self.new(self.data.query('code=="{}"'.format(code)).set_index(['datetime', 'code'], drop=False), self.type, self.if_fq)
+            return self.new(self.query('code=="{}"'.format(code)), self.type, self.if_fq)
 
     def get_bar(self, code, time, if_trade):
         if self.type[-3:] in ['day']:
-            return self.new(self.query('code=="{}" & date=="{}"'.format(code, str(time)[0:10])).set_index(['date', 'code'], drop=False), self.type, self.if_fq)
+            return self.new(self.query('code=="{}" & date=="{}"'.format(code, str(time)[0:10])), self.type, self.if_fq)
 
         elif self.type[-3:] in ['min']:
-            return self.new(self.query('code=="{}"'.format(code))[self.data['datetime'] == str(time)].set_index(['datetime', 'code'], drop=False), self.type, self.if_fq)
+            return self.new(self.query('code=="{}"'.format(code))[self.data['datetime'] == str(time)], self.type, self.if_fq)
 
     def find_bar(self, code, time):
         if len(time) == 10:
