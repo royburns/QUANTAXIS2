@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import concurrent
 import datetime
 import itertools
 import os
@@ -30,6 +31,8 @@ import statistics
 import sys
 import time
 import webbrowser
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import wait
 from copy import copy
 from functools import lru_cache, partial, reduce
 
@@ -508,10 +511,18 @@ class _quotation_base():
             return list(map(lambda x: self.new(
                 self.query('code=="{}"'.format(x)).set_index(['datetime', 'code'], drop=False), self.type, self.if_fq), self.code))
 
-    def add_func(self, func, *arg, **kwargs):
-        return list(map(lambda x: func(
-            self.query('code=="{}"'.format(x)), *arg, **kwargs), self.code))
+    # def add_func(self, func, *arg, **kwargs):
+    #     with ThreadPoolExecutor(max_workers=16) as executor:
+    #         return [res.result() for res in {executor.submit(func, self.data.xs(x,level=1), *arg, **kwargs) for x in self.code}]
 
+    # def add_func_with_map(self, func, *arg, **kwargs):
+    #     return list(map(lambda x: func(
+    #         self.data.xs(x,level=1), *arg, **kwargs), self.code))
+    def add_func(self, func, *arg, **kwargs):
+        return self.data.groupby('code').apply(func, *arg, **kwargs)
+    # def add_func_with_processaccelerate(self, func, *arg, **kwargs):
+    #     with ProcessPoolExecutor(max_workers=16) as executor:
+    #         return [res.result() for res in {executor.submit(func, self.data.xs(x,level=1), *arg, **kwargs) for x in self.code}]
     def pivot(self, column_):
         '增加对于多列的支持'
         if isinstance(column_, str):
@@ -563,7 +574,9 @@ class _quotation_base():
                 elif self.type[-3:] in ['min']:
 
                     return _data.data[_data.data['datetime'] > time].head(gap).set_index(['datetime', 'code'], drop=False)
-            return self.new(pd.concat(list(map(lambda x: __gt(x), self.splits()))), self.type, self.if_fq)
+
+
+            return self.new(self.data.groupby('code').apply(__gt), self.type, self.if_fq)        
 
         elif method in ['gte', '>=']:
             def __gte(_data):
@@ -571,7 +584,7 @@ class _quotation_base():
                     return _data.query('date>="{}"'.format(time)).head(gap).set_index(['date', 'code'], drop=False)
                 elif self.type[-3:] in ['min']:
                     return _data.data[_data.data['datetime'] >= time].head(gap).set_index(['datetime', 'code'], drop=False)
-            return self.new(pd.concat(list(map(lambda x: __gte(x), self.splits()))), self.type, self.if_fq)
+            return self.new(self.data.groupby('code').apply(__gte), self.type, self.if_fq)      
         elif method in ['lt', '<']:
             def __lt(_data):
                 if self.type[-3:] in ['day']:
@@ -579,21 +592,21 @@ class _quotation_base():
                 elif self.type[-3:] in ['min']:
                     return _data.data[_data.data['datetime'] <= time].tail(gap).set_index(['datetime', 'code'], drop=False)
 
-            return self.new(pd.concat(list(map(lambda x: __lt(x), self.splits()))), self.type, self.if_fq)
+            return self.new(self.data.groupby('code').apply(__lt), self.type, self.if_fq)      
         elif method in ['lte', '<=']:
             def __lte(_data):
                 if self.type[-3:] in ['day']:
                     return _data.query('date<="{}"'.format(time)).tail(gap).set_index(['date', 'code'], drop=False)
                 elif self.type[-3:] in ['min']:
                     return _data.data[_data.data['datetime'] <= time].tail(gap).set_index(['datetime', 'code'], drop=False)
-            return self.new(pd.concat(list(map(lambda x: __lte(x), self.splits()))), self.type, self.if_fq)
+            return self.new(self.data.groupby('code').apply(__lte), self.type, self.if_fq)      
         elif method in ['e', '==', '=', 'equal']:
             def __eq(_data):
                 if self.type[-3:] in ['day']:
                     return _data.query('date=="{}"'.format(time)).head(gap).set_index(['date', 'code'], drop=False)
                 elif self.type[-3:] in ['min']:
                     return _data.data[_data.data['datetime'] == time].head(gap).set_index(['datetime', 'code'], drop=False)
-            return self.new(pd.concat(list(map(lambda x: __eq(x), self.splits()))), self.type, self.if_fq)
+            return self.new(self.data.groupby('code').apply(__eq), self.type, self.if_fq)      
 
     def select_code(self, code):
         if self.type[-3:] in ['day']:
